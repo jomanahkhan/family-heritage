@@ -1,0 +1,219 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth models below match Better Auth's required schema (email/password,
+// JWT-less sessions) — see lib/auth.ts. The @better-auth/cli generator
+// couldn't be installed here (its better-sqlite3 devDependency fails to
+// compile against this Node version), so these are hand-written against
+// Better Auth's documented default Prisma schema instead.
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  role          Role     @default(MEMBER)
+  personId      String?  @unique
+  person        Person?  @relation(fields: [personId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions Session[]
+  accounts Account[]
+
+  invitesCreated InviteCode[]
+  createdPeople  Person[]     @relation("PersonCreatedBy")
+  posts          Post[]
+  comments       Comment[]
+  likes          Like[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  issuer                String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  UNKNOWN
+}
+
+enum RelationshipStatus {
+  MARRIED
+  PARTNERED
+  DIVORCED
+}
+
+enum PostType {
+  ANNOUNCEMENT
+  EVENT_INVITE
+  ACHIEVEMENT
+}
+
+model Person {
+  id          String    @id @default(cuid())
+  firstName   String
+  lastName    String
+  gender      Gender    @default(UNKNOWN)
+  dob         DateTime?
+  dateOfDeath DateTime?
+  city        String?
+  bio         String?
+  photoUrl    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  createdById String?
+  createdBy   User?   @relation("PersonCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  user            User?
+  childOf         ParentChild[] @relation("ChildEdges")
+  parentOf        ParentChild[] @relation("ParentEdges")
+  partnershipsAsA Partnership[] @relation("PersonA")
+  partnershipsAsB Partnership[] @relation("PersonB")
+}
+
+model ParentChild {
+  id       String @id @default(cuid())
+  parentId String
+  childId  String
+  parent   Person @relation("ParentEdges", fields: [parentId], references: [id], onDelete: Cascade)
+  child    Person @relation("ChildEdges", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, childId])
+  @@index([childId])
+}
+
+model Partnership {
+  id        String             @id @default(cuid())
+  personAId String
+  personBId String
+  personA   Person             @relation("PersonA", fields: [personAId], references: [id], onDelete: Cascade)
+  personB   Person             @relation("PersonB", fields: [personBId], references: [id], onDelete: Cascade)
+  status    RelationshipStatus @default(MARRIED)
+  startDate DateTime?
+  endDate   DateTime?
+
+  @@unique([personAId, personBId])
+}
+
+model InviteCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  createdById String
+  creator     User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  maxUses     Int       @default(1)
+  usedCount   Int       @default(0)
+  expiresAt   DateTime?
+  revoked     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  redemptions InviteCodeRedemption[]
+
+  @@index([code])
+}
+
+model InviteCodeRedemption {
+  id           String     @id @default(cuid())
+  inviteCodeId String
+  inviteCode   InviteCode @relation(fields: [inviteCodeId], references: [id], onDelete: Cascade)
+  userEmail    String
+  redeemedAt   DateTime   @default(now())
+}
+
+model Post {
+  id            String    @id @default(cuid())
+  authorId      String
+  author        User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  type          PostType
+  title         String
+  body          String
+  eventDate     DateTime?
+  eventLocation String?
+  imageUrl      String?
+  createdAt     DateTime  @default(now())
+
+  comments Comment[]
+  likes    Like[]
+
+  @@index([createdAt])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([postId])
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+}
